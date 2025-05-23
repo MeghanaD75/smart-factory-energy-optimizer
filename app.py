@@ -12,12 +12,17 @@ st.set_page_config(page_title="Smart Factory Energy Optimizer", layout="centered
 import pandas as pd
 import tempfile
 from PyPDF2 import PdfReader
-from transformers import pipeline
+from transformers import pipeline, logging
+
+# ----------------- Suppress transformers warnings -----------------
+logging.set_verbosity_error()
 
 # ----------------- Initialize LLM -----------------
 @st.cache_resource(show_spinner=True)
 def load_pipeline():
-    return pipeline("text2text-generation", model="google/flan-t5-base")
+    # Use a smaller model for testing or reduce resource load
+    model_name = "google/flan-t5-small"  # smaller & faster, switch back if needed
+    return pipeline("text2text-generation", model=model_name, device=-1)
 
 qa_pipeline = load_pipeline()
 
@@ -57,7 +62,10 @@ if uploaded_pdf is not None:
                 text = page.extract_text()
                 if text:
                     doc_text += text + "\n"
-        st.success("✅ PDF processed successfully.")
+        if doc_text.strip():
+            st.success("✅ PDF processed successfully.")
+        else:
+            st.warning("⚠️ PDF text extraction returned empty content.")
     except Exception as e:
         st.error(f"❌ Error processing PDF: {e}")
 
@@ -91,8 +99,14 @@ def optimization_agent(query, context):
             return "⚠️ No PDF content available for optimization."
         if not query.strip():
             return "⚠️ Enter a valid question."
-        input_text = f"Context: {context}\n\nQuestion: {query}"
-        result = qa_pipeline(input_text, max_length=256, do_sample=False)[0]["generated_text"]
+
+        # Limit context length to prevent max token overflow
+        max_context_len = 1000
+        context_trimmed = context[:max_context_len]
+
+        input_text = f"Context: {context_trimmed}\n\nQuestion: {query}"
+
+        result = qa_pipeline(input_text, max_new_tokens=150, do_sample=False)[0]["generated_text"]
         return result.strip()
     except Exception as e:
         return f"❌ Error in Optimization Agent: {e}"
